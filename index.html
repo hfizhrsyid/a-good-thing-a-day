@@ -34,8 +34,10 @@ h1{font-family:inherit;font-size:26px;margin:4px 0 2px;letter-spacing:-.5px}
 .fab{position:fixed;right:max(18px,calc(50% - 300px));bottom:calc(22px + env(safe-area-inset-bottom,0px));width:62px;height:62px;border-radius:50%;border:0;background:var(--accent);color:#2d2a26;font-size:34px;box-shadow:0 6px 18px #0004;cursor:pointer}
 .mask{position:fixed;inset:0;background:#0007;display:flex;align-items:flex-end;justify-content:center;z-index:20}
 .sheet{background:var(--bg);width:100%;max-width:560px;max-height:94dvh;overflow:auto;overscroll-behavior:contain;border-radius:26px 26px 0 0;padding:18px 18px calc(22px + env(safe-area-inset-bottom,0px));-webkit-overflow-scrolling:touch}
+.editor-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}.editor-head .bar{margin:0}.editor-close{border:0;background:var(--card);color:var(--ink);border-radius:99px;padding:7px 12px;font:inherit;font-size:12px}
 .sheet h2{margin:0 0 10px;font-family:inherit;font-size:20px}
 canvas{width:100%;aspect-ratio:1;background:#fffdf6;border:2px dashed var(--line);border-radius:18px;touch-action:none;display:block}
+.text-input-proxy{position:absolute;left:0;top:0;width:1px;height:1px;opacity:.01;border:0;padding:0;pointer-events:none}
 .tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0}
 .sw{width:28px;height:28px;border-radius:50%;border:3px solid transparent;cursor:pointer;padding:0}.sw.on{border-color:var(--ink)}
 .btn{border:2px solid var(--line);background:var(--card);color:var(--ink);padding:8px 14px;border-radius:12px;font:inherit;font-size:14px;cursor:pointer}
@@ -310,12 +312,14 @@ const FONTS=[['mono','ui-monospace,Menlo,monospace'],['serif','Georgia,serif'],[
 function editor(ds,ex){
   ex=ex||{};
   const cp=a=>JSON.parse(JSON.stringify(a||[]));
-  let strokes=cp(ex.strokes),texts=cp(ex.texts),cur=null,dragT=null,off=[0,0],hold=null,hs=null,tool='pen',color=PAL[0],size=6,mood=ex.mood||'',wx=ex.wx||'',base=null,baseImg=null,U=[],Rr=[],layer=1,sel=[],op=null,previewPoint=[180,180],fixedTextPoint=null,editingText=null,editMarked=false,textRotation=0;
+  let strokes=cp(ex.strokes),texts=cp(ex.texts),cur=null,dragT=null,off=[0,0],hold=null,hs=null,tool='pen',color=PAL[0],size=6,mood=ex.mood||'',wx=ex.wx||'',base=null,baseImg=null,U=[],Rr=[],layer=1,sel=[],op=null,previewPoint=[180,180],fixedTextPoint=null,editingText=null,editMarked=false,textRotation=0,zoom=1,outlineColor='#2d2a26';
   const pick=(arr,v,k)=>arr.map(x=>`<button data-${k}="${x}" class="${x===v?'on':''}" title="${x}">${IC[x]}</button>`).join('');
   const m=sheet(`<div class="bar"></div>
-  <div class="board"><canvas id="cv" width="1080" height="1080" tabindex="0" aria-label="Drawing board"></canvas><div class="text-anchor" id="textAnchor" aria-hidden="true"></div><div class="selbox" id="selbox"></div><div class="resize-handle" data-dir="nw" id="resizeNW" aria-label="Resize selected object"></div><div class="resize-handle" data-dir="ne" id="resizeNE" aria-label="Resize selected object"></div><div class="resize-handle" data-dir="sw" id="resizeSW" aria-label="Resize selected object"></div><div class="resize-handle" data-dir="se" id="resizeSE" aria-label="Resize selected object"></div><div class="rotate-handle" id="rotateHandle" title="Drag to rotate" aria-label="Rotate selected text"></div><div class="marq" id="marq"></div></div>
+  <div class="editor-head"><div class="bar"></div><button type="button" class="editor-close" id="editorClose">done</button></div>
+  <div class="board"><canvas id="cv" width="1080" height="1080" tabindex="0" aria-label="Drawing board"></canvas><input id="textInputProxy" class="text-input-proxy" aria-label="Type text on drawing board" autocomplete="off" autocapitalize="sentences"><div class="text-anchor" id="textAnchor" aria-hidden="true"></div><div class="selbox" id="selbox"></div><div class="resize-handle" data-dir="nw" id="resizeNW" aria-label="Resize selected object"></div><div class="resize-handle" data-dir="ne" id="resizeNE" aria-label="Resize selected object"></div><div class="resize-handle" data-dir="sw" id="resizeSW" aria-label="Resize selected object"></div><div class="resize-handle" data-dir="se" id="resizeSE" aria-label="Resize selected object"></div><div class="rotate-handle" id="rotateHandle" title="Drag to rotate" aria-label="Rotate selected text"></div><div class="marq" id="marq"></div></div>
   <div class="dock">${TOOLS.map(([k])=>`<button class="tb ${k==='pen'?'on':''}" data-t="${k}" title="${k}">${IC[k]}</button>`).join('')}</div>
-  <div class="tools" id="srow" style="display:none;margin:10px 0 0"><button class="btn pri" id="sedit" style="display:none">edit text</button><button class="btn" id="sdup">duplicate</button><button class="btn del" id="sdel">delete</button><span class="cnt" style="margin:0 0 0 4px">drag any corner or press + / − to resize</span></div>
+  <div class="tools" id="srow" style="display:none;margin:10px 0 0"><button class="btn pri" id="sedit" style="display:none">edit text</button><button class="btn" id="sdup">duplicate</button><button class="btn del" id="sdel">delete</button><button class="btn" id="outlineToggle" type="button">outline: off</button><span class="cnt" style="margin:0 0 0 4px">drag any corner or press + / − to resize</span></div>
+  <div class="tools" id="outlineRow" style="display:none;margin:4px 0 0"><span class="cnt">outline color</span>${['#2d2a26','#ffffff','#ff5a1f','#3f8fd9'].map((c,i)=>`<button type="button" class="sw outline-swatch ${i===0?'on':''}" data-outline-color="${c}" style="background:${c}" aria-label="Outline ${c}"></button>`).join('')}</div>
   <div id="trow" style="display:none;margin:10px 0 0">
     <div class="textstatus" id="tstatus">Tap the canvas to reserve a spot, then type your text.</div>
     <div class="text-actions"><button type="button" class="btn pri" id="placeText" style="display:none">Place text</button><button type="button" class="btn" id="textDone" style="display:none">Done editing</button></div>
@@ -361,6 +365,7 @@ function editor(ds,ex){
   const draw=(g,s)=>{g.save();g.lineCap=g.lineJoin='round';g.strokeStyle=g.fillStyle=s.c;g.lineWidth=s.w;
     if(s.t==='fill')g.fillRect(0,0,360,360);
     else {
+      if(s.outline){g.save();g.strokeStyle=s.oc||outlineColor;g.lineWidth=s.w+6;trace(g,s.p);g.stroke();g.restore()}
       const hex=String(s.c||'').replace('#','');let light=false;
       if(/^[0-9a-f]{6}$/i.test(hex)){const n=parseInt(hex,16),r=n>>16&255,gg=n>>8&255,b=n&255;light=(.2126*r+.7152*gg+.0722*b)>190}
       const mult=s.t==='marker'?1.8:s.t==='hl'?3:s.t==='erase'?2.5:1;
@@ -381,7 +386,7 @@ function editor(ds,ex){
       else if(eff==='outline'){ctx.lineWidth=Math.max(1.5,z*.07);ctx.strokeStyle=t.c||'#222';ctx.strokeText(ch,0,0)}
       ctx.fillStyle=t.c||'#222';ctx.fillText(ch,0,0);ctx.restore()};
     if(!curve&&!wave){ctx.textAlign=t.anchor==='start'?'left':'center';ctx.shadowColor=eff==='shadow'||eff==='glow'?(t.c||'#222'):'#0000';ctx.shadowBlur=eff==='glow'?18:eff==='shadow'?6:0;ctx.shadowOffsetY=eff==='shadow'?5:0;
-      if(eff==='bubble'){ctx.lineWidth=10;ctx.strokeStyle='#fff';ctx.strokeText(txt,0,0);ctx.lineWidth=2;ctx.strokeStyle='#b8b0a6';ctx.strokeText(txt,0,0)}else if(eff==='outline'){ctx.lineWidth=3;ctx.strokeStyle=t.c||'#222';ctx.strokeText(txt,0,0)}ctx.fillStyle=t.c||'#222';ctx.fillText(txt,0,0);
+      if(eff==='bubble'){ctx.lineWidth=10;ctx.strokeStyle='#fff';ctx.strokeText(txt,0,0);ctx.lineWidth=2;ctx.strokeStyle='#b8b0a6';ctx.strokeText(txt,0,0)}else if(eff==='outline'){ctx.lineWidth=3;ctx.strokeStyle=t.c||'#222';ctx.strokeText(txt,0,0)}else if(t.outline){ctx.lineWidth=6;ctx.strokeStyle=t.oc||'#2d2a26';ctx.strokeText(txt,0,0)}ctx.fillStyle=t.c||'#222';ctx.fillText(txt,0,0);
     }else{
       const widths=Array.from(txt,ch=>ctx.measureText(ch).width),total=widths.reduce((a,b)=>a+b,0),start=-total/2;let pos=start;
       const point=u=>{const nx=(total?u/Math.max(total/2,1):0);return [u,-(curve/100)*48*(1-nx*nx)+wave*Math.sin((u+total/2)/Math.max(total,1)*Math.PI*4)]};
@@ -390,7 +395,7 @@ function editor(ds,ex){
     ctx.restore()
   };
   const paintNow=(includePreview=true)=>{
-    x.setTransform(3,0,0,3,0,0);x.globalCompositeOperation='source-over';x.globalAlpha=1;x.clearRect(0,0,360,360);
+    x.setTransform(1,0,0,1,0,0);x.clearRect(0,0,1080,1080);const z=includePreview?zoom:1;x.setTransform(3*z,0,0,3*z,540*(1-z),540*(1-z));x.globalCompositeOperation='source-over';x.globalAlpha=1;
     LC.forEach((g,L)=>{g.clearRect(0,0,360,360);if(L===1&&base)g.drawImage(base,0,0,360,360);strokes.forEach(s=>{if((s.l??1)===L)draw(g,s)});x.drawImage(g.canvas,0,0,360,360)});
     texts.forEach(t=>drawText(x,t));
     // Live, non-destructive preview is drawn on the board only; it is excluded from saved artwork.
@@ -400,9 +405,9 @@ function editor(ds,ex){
   let paintFrame=0;const paint=()=>{if(paintFrame)return;paintFrame=requestAnimationFrame(()=>{paintFrame=0;paintNow()})};
   if(ex.img&&!ex.strokes){baseImg=new Image();baseImg.onload=()=>{base=baseImg;paint()};baseImg.src=ex.img}
   paint();sync();dot();
-  const pt=e=>{const r=cv.getBoundingClientRect();return[(e.clientX-r.left)*360/r.width,(e.clientY-r.top)*360/r.height]};
+  const pt=e=>{const r=cv.getBoundingClientRect(),px=(e.clientX-r.left)*360/r.width,py=(e.clientY-r.top)*360/r.height;return[(px-180)/zoom+180,(py-180)/zoom+180]};
   const hit=p=>{for(let i=texts.length-1;i>=0;i--){const t=texts[i],b=bb(t);if(p[0]>=b[0]-6&&p[0]<=b[2]+6&&p[1]>=b[1]-6&&p[1]<=b[3]+6)return t}};
-  const bx=$$('#selbox'),rh=$$('#rotateHandle'),ta=$$('#textAnchor'),mq=$$('#marq'),srow=$$('#srow'),resizeHandles=[...m.querySelectorAll('.resize-handle')],JC=o=>JSON.parse(JSON.stringify(o)),okS=s=>s.t!=='fill'&&s.t!=='erase';
+  const bx=$$('#selbox'),rh=$$('#rotateHandle'),ta=$$('#textAnchor'),mq=$$('#marq'),srow=$$('#srow'),outlineRow=$$('#outlineRow'),outlineToggle=$$('#outlineToggle'),textInputProxy=$$('#textInputProxy'),resizeHandles=[...m.querySelectorAll('.resize-handle')],JC=o=>JSON.parse(JSON.stringify(o)),okS=s=>s.t!=='fill'&&s.t!=='erase';
   const items=()=>[...strokes.filter(okS),...texts];
   const bb=o=>{if(o.p){const xs=o.p.map(q=>q[0]),ys=o.p.map(q=>q[1]),pad=Math.max(4,o.w*({marker:.9,hl:1.5}[o.t]||.7));return[Math.min(...xs)-pad,Math.min(...ys)-pad,Math.max(...xs)+pad,Math.max(...ys)+pad]}
     x.font=`${o.z||28}px ${FONTS[Number.isInteger(o.f)?o.f:0]?.[1]||FONTS[0][1]}`;const w=x.measureText(o.s).width/2,ext=(o.z||28)/2+Math.abs(Number(o.curve)||0)*.48+(Number(o.wave)||0),a=(Number(o.rot)||0)*Math.PI/180,hw=Math.abs(w*Math.cos(a))+Math.abs(ext*Math.sin(a)),hh=Math.abs(w*Math.sin(a))+Math.abs(ext*Math.cos(a));return o.anchor==='start'?[o.x,o.y-hh,o.x+hw*2,o.y+hh]:[o.x-hw,o.y-hh,o.x+hw,o.y+hh]};
@@ -412,7 +417,7 @@ function editor(ds,ex){
     for(let i=1;i<q.length;i++){const[ax,ay]=q[i-1],[bx2,by]=q[i],dx=bx2-ax,dy=by-ay,l=dx*dx+dy*dy||1,t=Math.max(0,Math.min(1,((p[0]-ax)*dx+(p[1]-ay)*dy)/l));if(Math.hypot(p[0]-ax-t*dx,p[1]-ay-t*dy)<r)return true}return false};
   const pickAt=p=>{const f=strokes.filter(s=>okS(s)&&(s.l??1)===1).reverse(),k=strokes.filter(s=>okS(s)&&(s.l??1)===0).reverse();return[...texts.slice().reverse(),...f,...k].find(o=>near(o,p))};
   const place=(el,b)=>{el.style.cssText=`display:block;left:${b[0]/3.6}%;top:${b[1]/3.6}%;width:${(b[2]-b[0])/3.6}%;height:${(b[3]-b[1])/3.6}%`};
-  const showSel=()=>{const on=sel.length&&(tool==='select'||editingText),b=on?gb(sel):null,textOn=on&&sel.length===1&&!sel[0].p;if(on){place(bx,b);bx.classList.toggle('rotated',textOn);bx.style.setProperty('--selection-rotation',textOn?((Number(sel[0].rot)||0)+'deg'):'0deg');const hs={nw:[b[0],b[1]],ne:[b[2],b[1]],sw:[b[0],b[3]],se:[b[2],b[3]]};resizeHandles.forEach(h=>{const q=hs[h.dataset.dir];h.style.display='block';h.style.left=(q[0]/3.6)+'%';h.style.top=(q[1]/3.6)+'%'})}else{bx.style.display='none';bx.classList.remove('rotated');resizeHandles.forEach(h=>h.style.display='none')}if(textOn){rh.style.display='block';rh.style.left=((b[0]+b[2])/2/3.6)+'%';rh.style.top=((b[1]-24)/3.6)+'%'}else rh.style.display='none';if(fixedTextPoint&&tool==='text'&&!editingText){ta.style.display='block';ta.style.left=(fixedTextPoint[0]/3.6)+'%';ta.style.top=(fixedTextPoint[1]/3.6)+'%'}else ta.style.display='none';if(op&&op.k==='marq'&&op.r)place(mq,op.r);else mq.style.display='none';srow.style.display=on?'flex':'none';$$('#sedit').style.display=textOn?'inline-flex':'none'};
+  const showSel=()=>{const on=sel.length&&(tool==='select'||editingText),b=on?gb(sel):null,textOn=on&&sel.length===1&&!sel[0].p;if(on){place(bx,b);bx.classList.toggle('rotated',textOn);bx.style.setProperty('--selection-rotation',textOn?((Number(sel[0].rot)||0)+'deg'):'0deg');const hs={nw:[b[0],b[1]],ne:[b[2],b[1]],sw:[b[0],b[3]],se:[b[2],b[3]]};resizeHandles.forEach(h=>{const q=hs[h.dataset.dir];h.style.display='block';h.style.left=(q[0]/3.6)+'%';h.style.top=(q[1]/3.6)+'%'})}else{bx.style.display='none';bx.classList.remove('rotated');resizeHandles.forEach(h=>h.style.display='none')}if(textOn){rh.style.display='block';rh.style.left=((b[0]+b[2])/2/3.6)+'%';rh.style.top=((b[1]-24)/3.6)+'%'}else rh.style.display='none';if(fixedTextPoint&&tool==='text'&&!editingText){ta.style.display='block';ta.style.left=(fixedTextPoint[0]/3.6)+'%';ta.style.top=(fixedTextPoint[1]/3.6)+'%'}else ta.style.display='none';if(op&&op.k==='marq'&&op.r)place(mq,op.r);else mq.style.display='none';srow.style.display=on?'flex':'none';outlineRow.style.display=on?'flex':'none';outlineToggle.textContent=on&&sel.every(o=>o.outline)?'outline: on':'outline: off';$$('#sedit').style.display=textOn?'inline-flex':'none'};
   const selDown=p=>{
     if(sel.length){const b=gb(sel);if(Math.hypot(p[0]-b[2],p[1]-b[3])<18){op={k:'scale',b,o:sel.map(JC),m:false,cx:(b[0]+b[2])/2,cy:(b[1]+b[3])/2,start:Math.hypot(p[0]-(b[0]+b[2])/2,p[1]-(b[1]+b[3])/2),scaleFactor:1};return}}
     const o=pickAt(p);
@@ -436,16 +441,18 @@ function editor(ds,ex){
   $$('#sdel').onclick=()=>{if(!sel.length)return;mark();strokes=strokes.filter(s=>!sel.includes(s));texts=texts.filter(t=>!sel.includes(t));sel=[];paint();showSel()};
   $$('#sdup').onclick=()=>{if(!sel.length)return;mark();const n=sel.map(o=>{const c=JC(o);if(c.p)c.p=c.p.map(q=>[q[0]+14,q[1]+14]);else{c.x+=14;c.y+=14}return c});n.forEach(c=>c.p?strokes.push(c):texts.push(c));sel=n;paint();showSel()};
   const draftText=()=>draft.trim();
-  const addTextAt=p=>{const v=draftText();if(!v){toast('Type your text first');cv.focus();return}mark();texts.push({s:v,x:p[0],y:p[1],anchor:'start',c:color,z:+txsize.value,f:fontIndex,e:effect,curve:+txcurve.value,wave:+txwave.value,rot:textRotation});draft='';fixedTextPoint=null;textRotation=0;updateTextUI();paint()};
+  const focusTextInput=()=>{textInputProxy.value=draft;textInputProxy.focus({preventScroll:true})};
+  const addTextAt=p=>{const v=draftText();if(!v){toast('Type your text first');focusTextInput();return}mark();texts.push({s:v,x:p[0],y:p[1],anchor:'start',c:color,z:+txsize.value,f:fontIndex,e:effect,curve:+txcurve.value,wave:+txwave.value,rot:textRotation});draft='';textInputProxy.value='';fixedTextPoint=null;textRotation=0;updateTextUI();paint()};
   const pointers=new Map();let pinch=null;
   const angle=(a,b)=>Math.atan2(b[1]-a[1],b[0]-a[0])*180/Math.PI;
+  const distance=(a,b)=>Math.hypot(b[0]-a[0],b[1]-a[1]);
   const pinchTarget=()=>editingText||(sel.length===1&&!sel[0].p?sel[0]:null);
-  cv.onpointerdown=e=>{pointers.set(e.pointerId,[e.clientX,e.clientY]);cv.setPointerCapture(e.pointerId);if(pointers.size===2){clearTimeout(hold);hold=null;cur=null;dragT=null;op=null;const a=[...pointers.values()],target=pinchTarget();pinch={start:angle(a[0],a[1]),rot:target?(Number(target.rot)||0):textRotation,target,marked:false};return}const p=pt(e);if(tool==='select'){selDown(p);return}
-    if(tool==='text'){if(editingText)return;if(!fixedTextPoint){fixedTextPoint=p;previewPoint=p;updateTextUI();cv.focus({preventScroll:true});paint()}else addTextAt(p);return}
+  cv.onpointerdown=e=>{pointers.set(e.pointerId,[e.clientX,e.clientY]);cv.setPointerCapture(e.pointerId);if(pointers.size===2){clearTimeout(hold);hold=null;cur=null;dragT=null;op=null;const a=[...pointers.values()];pinch={startDistance:distance(a[0],a[1]),startZoom:zoom};return}const p=pt(e);if(tool==='select'){selDown(p);return}
+    if(tool==='text'){if(editingText)return;if(!fixedTextPoint){fixedTextPoint=p;previewPoint=p;updateTextUI();focusTextInput();paint()}else addTextAt(p);return}
     const h=hit(p);if(h){mark();dragT=h;off=[h.x-p[0],h.y-p[1]];return}
     mark();cur={t:tool,c:color,w:size,l:layer,p:[p]};strokes.push(cur);paint();hs=p;
     if(tool!=='erase')hold=setTimeout(()=>{hold=null;if(!cur)return;strokes.pop();strokes.push({t:'fill',c:color,l:layer,p:[]});cur=null;paint();try{navigator.vibrate(20)}catch(e){}},550)};
-  cv.onpointermove=e=>{if(pointers.has(e.pointerId))pointers.set(e.pointerId,[e.clientX,e.clientY]);if(pinch&&pointers.size>=2){const a=[...pointers.values()],next=pinch.rot+angle(a[0],a[1])-pinch.start;if(pinch.target){if(!pinch.marked){mark();pinch.marked=true}pinch.target.rot=next;textRotation=next}else{textRotation=next}$$('#rotateval').textContent=Math.round(next)+'°';paint();showSel();return}const p=pt(e);if(tool==='text'&&!op&&!dragT&&!cur&&!fixedTextPoint){previewPoint=p;paint()}if(op){selMove(p);return}if(dragT){dragT.x=p[0]+off[0];dragT.y=p[1]+off[1];paint()}else if(cur){(e.getCoalescedEvents?e.getCoalescedEvents():[e]).forEach(ev=>cur.p.push(pt(ev)));if(hold&&Math.hypot(p[0]-hs[0],p[1]-hs[1])>8){clearTimeout(hold);hold=null}paint()}};
+  cv.onpointermove=e=>{if(pointers.has(e.pointerId))pointers.set(e.pointerId,[e.clientX,e.clientY]);if(pinch&&pointers.size>=2){const a=[...pointers.values()],ratio=distance(a[0],a[1])/Math.max(1,pinch.startDistance);zoom=Math.max(1,Math.min(2.5,pinch.startZoom*ratio));paint();return}const p=pt(e);if(tool==='text'&&!op&&!dragT&&!cur&&!fixedTextPoint){previewPoint=p;paint()}if(op){selMove(p);return}if(dragT){dragT.x=p[0]+off[0];dragT.y=p[1]+off[1];paint()}else if(cur){(e.getCoalescedEvents?e.getCoalescedEvents():[e]).forEach(ev=>cur.p.push(pt(ev)));if(hold&&Math.hypot(p[0]-hs[0],p[1]-hs[1])>8){clearTimeout(hold);hold=null}paint()}};
   cv.onpointerup=cv.onpointercancel=e=>{pointers.delete(e.pointerId);if(pinch&&pointers.size<2){pinch=null}clearTimeout(hold);hold=null;cur=null;dragT=null;if(op){op=null;showSel()}};
   cv.ondblclick=e=>{const h=hit(pt(e));if(h&&!h.p){sel=[h];tool='select';m.querySelectorAll('.tb').forEach(q=>q.classList.toggle('on',q.dataset.t==='select'));showSel();$$('#sedit').click()}};
   const updateTextUI=()=>{const hasDraft=!!draftText();$$('#tstatus').textContent=editingText?'Editing selected text — pinch the text to rotate it.':fixedTextPoint?(hasDraft?'Text preview is anchored here. Tap Place text or the canvas to finish.':'Caret placed — type directly on the canvas.'):'Tap the canvas to place the text caret, then type directly.';$$('#textDone').style.display=editingText?'inline-flex':'none';$$('#placeText').style.display=fixedTextPoint&&hasDraft&&!editingText?'inline-flex':'none';showSel()};
@@ -461,6 +468,8 @@ function editor(ds,ex){
       else if(U.length)un.onclick();
     }
   });
+  textInputProxy.addEventListener('input',()=>{draft=textInputProxy.value.slice(0,30);updateTextPreview()});
+  textInputProxy.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();if(fixedTextPoint&&!editingText)addTextAt(fixedTextPoint)}if(e.key==='Escape'){e.preventDefault();draft='';textInputProxy.value='';fixedTextPoint=null;updateTextUI();paint()}});
   cv.addEventListener('keydown',e=>{
     if((tool==='select'||editingText)&&sel.length){
       const grow=e.key==='+'||e.key==='='||e.key==='Add',shrink=e.key==='-'||e.key==='_'||e.key==='Subtract';
@@ -472,7 +481,7 @@ function editor(ds,ex){
     if(e.key==='Backspace'){e.preventDefault();draft=draft.slice(0,-1)}
     else if(e.key.length===1&&!e.ctrlKey&&!e.metaKey&&!e.altKey){if(draft.length>=30)return;draft+=e.key}
     else return;
-    updateTextPreview()
+    textInputProxy.value=draft;updateTextPreview()
   });
   [txsize,txcurve,txwave].forEach(el=>el.addEventListener('input',updateTextPreview));
   m.querySelectorAll('[data-font]').forEach(b=>b.onclick=()=>{fontIndex=+b.dataset.font;m.querySelectorAll('[data-font]').forEach(q=>q.classList.toggle('on',q===b));updateTextPreview()});
@@ -480,6 +489,12 @@ function editor(ds,ex){
   $$('#sedit').onclick=()=>{if(sel.length!==1||sel[0].p)return;editingText=sel[0];editMarked=false;draft=editingText.s;color=editingText.c||color;setC(color);fontIndex=Number.isInteger(editingText.f)?editingText.f:0;effect=editingText.e||'plain';txsize.value=editingText.z||28;txcurve.value=editingText.curve||0;txwave.value=editingText.wave||0;textRotation=Number(editingText.rot)||0;m.querySelectorAll('[data-font]').forEach(q=>q.classList.toggle('on',+q.dataset.font===fontIndex));m.querySelectorAll('[data-effect]').forEach(q=>q.classList.toggle('on',q.dataset.effect===effect));tool='text';m.querySelectorAll('.tb').forEach(q=>q.classList.toggle('on',q.dataset.t==='text'));$$('#trow').style.display='block';$$('#tstyle').style.display='block';$$('#advancedTextDetails').open=true;$$('#rotateval').textContent=Math.round(textRotation)+'°';updateTextPreview();cv.focus()};
   $$('#textDone').onclick=()=>{editingText=null;editMarked=false;draft='';fixedTextPoint=null;textRotation=0;updateTextUI();paint()};
   $$('#placeText').onclick=()=>{if(fixedTextPoint)addTextAt(fixedTextPoint)};
+  $$('#editorClose').onclick=closeSheet;
+  outlineToggle.onclick=()=>{if(!sel.length)return;mark();const on=!sel.every(o=>o.outline);sel.forEach(o=>{o.outline=on;o.oc=o.oc||outlineColor});paint();showSel()};
+  m.querySelectorAll('[data-outline-color]').forEach(b=>b.onclick=()=>{outlineColor=b.dataset.outlineColor;m.querySelectorAll('[data-outline-color]').forEach(q=>q.classList.toggle('on',q===b));if(sel.length){mark();sel.forEach(o=>{o.outline=true;o.oc=outlineColor});paint();showSel()}});
+  const editorSheet=m.querySelector('.sheet');let sheetStart=0;
+  editorSheet.addEventListener('pointerdown',e=>{sheetStart=editorSheet.scrollTop===0?e.clientY:0});
+  editorSheet.addEventListener('pointerup',e=>{if(sheetStart&&e.clientY-sheetStart>90){sheetStart=0;closeSheet()}});
   m.querySelectorAll('.tb').forEach(b=>b.onclick=()=>{if(editingText&&b.dataset.t!=='text'){$$('#textDone').click()}tool=b.dataset.t;m.querySelectorAll('.tb').forEach(s=>s.classList.toggle('on',s===b));$$('#trow').style.display=tool==='text'?'block':'none';$$('#tstyle').style.display=tool==='text'?'block':'none';if(tool==='text')updateTextPreview();sel=[];showSel();dot();paint()});
   const setC=c=>{color=c;m.querySelectorAll('.sw').forEach(s=>s.classList.toggle('on',s.dataset.c===c));const cl=$$('#cl'),cu=!PAL.includes(c);cl.classList.toggle('on',cu);if(cu)cl.style.setProperty('--cc',c);dot()};
   m.querySelectorAll('.sw').forEach(b=>b.onclick=()=>{setC(b.dataset.c);updateTextPreview()});
